@@ -12,9 +12,6 @@ using Sep.Git.Tfs.Core.TfsInterop;
 
 namespace Sep.Git.Tfs.Commands
 {
-    [Pluggable("init-branch")]
-    [Description("WARNING: This command is obsolete and will be removed in the next version. Use 'branch --init' instead!\n\ninit-branch [$/Repository/path <git-branch-name-wished>|--all]\n ex : git tfs init-branch $/Repository/ProjectBranch\n      git tfs init-branch $/Repository/ProjectBranch myNewBranch\n      git tfs init-branch --all\n      git tfs init-branch --tfs-parent-branch=$/Repository/ProjectParentBranch $/Repository/ProjectBranch")]
-    [RequiresValidGitRepository]
     public class InitBranch : GitTfsCommand
     {
         private readonly TextWriter _stdout;
@@ -97,7 +94,7 @@ namespace Sep.Git.Tfs.Commands
                     throw new GitTfsException("error: The Tfs parent branch '" + ParentBranch + "' can not be found in the Git repository\nPlease init it first and try again...\n");
 
                 rootChangeSetId = defaultRemote.Tfs.GetRootChangesetForBranch(tfsBranchPath, tfsRepositoryPathParentBranchFound.TfsRepositoryPath);
-            }
+        }
 
             var sha1RootCommit = _globals.Repository.FindCommitHashByChangesetId(rootChangeSetId);
             if (string.IsNullOrWhiteSpace(sha1RootCommit))
@@ -171,8 +168,8 @@ namespace Sep.Git.Tfs.Commands
                             {
                                 tfsBranch.TfsRemote = CreateBranch(defaultRemote, tfsBranch.TfsRepositoryPath, sha1RootCommit);
                                 isSomethingDone = true;
-                            }
-                        }
+                }
+            }
                         if (tfsBranch.TfsRemote != null)
                         {
                             var lastFetchedChangesetId = tfsBranch.TfsRemote.MaxChangesetId;
@@ -286,11 +283,11 @@ namespace Sep.Git.Tfs.Commands
 
             if (createBranch && fetchResult.IsSuccess && tfsRemote.Id != GitTfsConstants.DefaultRepositoryId)
             {
-                Trace.WriteLine("Try creating the local branch...");
+            Trace.WriteLine("Try creating the local branch...");
                 if (!_globals.Repository.CreateBranch("refs/heads/" + tfsRemote.Id, tfsRemote.MaxCommitHash))
-                    _stdout.WriteLine("warning: Fail to create local branch ref file!");
-                else
-                    Trace.WriteLine("Local branch created!");
+                _stdout.WriteLine("warning: Fail to create local branch ref file!");
+            else
+                Trace.WriteLine("Local branch created!");
             }
 
             Trace.WriteLine("Cleaning...");
