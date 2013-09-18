@@ -56,6 +56,11 @@ namespace Sep.Git.Tfs.Util
             };
             foreach (var change in NamedChanges)
             {
+                if (change.Change.Item.ItemType == TfsItemType.Folder
+                   && change.GitPath == string.Empty
+                   && change.Change.ChangeType.IncludesOneOf(TfsChangeType.Delete))
+                    return new List<ApplicableChange>();
+
                 if (change.Change.Item.ItemType == TfsItemType.File)
                 {
                     if (change.Change.ChangeType.IncludesOneOf(TfsChangeType.Delete))
