@@ -151,7 +151,14 @@ namespace Sep.Git.Tfs.Commands
                 foreach (var tfsBranchPath in childBranchPaths)
                 {
                     _stdout.WriteLine("- " + tfsBranchPath.TfsRepositoryPath);
-                    tfsBranchPath.RootChangesetId = defaultRemote.Tfs.GetRootChangesetForBranch(tfsBranchPath.TfsRepositoryPath);
+                    try
+                    {
+                        tfsBranchPath.RootChangesetId = defaultRemote.Tfs.GetRootChangesetForBranch(tfsBranchPath.TfsRepositoryPath);
+                    }
+                    catch (GitTfsException ex)
+                    {
+                        _stdout.WriteLine("Exception occurred: {0}", ex.Message);
+                    }
                 }
                 childBranchPaths.Add(new BranchDatas {TfsRepositoryPath = defaultRemote.TfsRepositoryPath, TfsRemote = defaultRemote, RootChangesetId = -1});
 
