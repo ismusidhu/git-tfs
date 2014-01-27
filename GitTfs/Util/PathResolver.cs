@@ -34,18 +34,18 @@ namespace Sep.Git.Tfs.Util
             return !String.IsNullOrEmpty(gitPath) && !_remote.ShouldSkip(gitPath);
         }
 
-        private static readonly Regex SplitDirnameFilename = new Regex(@"(?<dir>.*)[/\\](?<file>[^/\\]+)");
+        private static readonly Regex SplitDirnameFilename = new Regex(@"(?<dir>.*)[/\\](?<file>[^/\\]+)", RegexOptions.Compiled);
 
         private GitObject Lookup(string pathInGitRepo)
         {
-            if (_initialTree.ContainsKey(pathInGitRepo))
-                return _initialTree[pathInGitRepo];
+            GitObject result = null;
+            if (String.IsNullOrEmpty(pathInGitRepo) || _initialTree.TryGetValue(pathInGitRepo, out result))
+                return result;
 
             var fullPath = pathInGitRepo;
             var splitResult = SplitDirnameFilename.Match(pathInGitRepo);
             if (splitResult.Success)
             {
-
                 var dirName = splitResult.Groups["dir"].Value;
                 var fileName = splitResult.Groups["file"].Value;
                 fullPath = Lookup(dirName).Path + "/" + fileName;

@@ -363,7 +363,12 @@ namespace Sep.Git.Tfs.Core
             return null;
         }
 
-        public IDictionary<string, GitObject> GetObjects(string commit)
+        public IDictionary<string, GitObject> GetObjects()
+        {
+            return new Dictionary<string, GitObject>(StringComparer.InvariantCultureIgnoreCase);
+        }
+
+        public IDictionary<string, GitObject> GetObjects(string commit, IDictionary<string, GitObject> initialTree)
         {
             var entries = GetObjects();
             if (commit != null)
@@ -371,6 +376,12 @@ namespace Sep.Git.Tfs.Core
                 ParseEntries(entries, _repository.Lookup<Commit>(commit).Tree, commit);
             }
             return entries;
+        }
+
+        public IDictionary<string, GitObject> GetObjects(string commit)
+        {
+            var entries = GetObjects();
+            return GetObjects(commit, entries);
         }
 
         public IGitTreeBuilder GetTreeBuilder(string commit)
@@ -383,11 +394,6 @@ namespace Sep.Git.Tfs.Core
             {
                 return new GitTreeBuilder(_repository.ObjectDatabase, _repository.Lookup<Commit>(commit).Tree);
             }
-        }
-
-        public Dictionary<string, GitObject> GetObjects()
-        {
-            return new Dictionary<string, GitObject>(StringComparer.InvariantCultureIgnoreCase);
         }
 
         public string GetCommitMessage(string head, string parentCommitish)
