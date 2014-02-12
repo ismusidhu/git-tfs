@@ -99,7 +99,7 @@ namespace Sep.Git.Tfs.VsCommon
                 }
                 catch (VersionControlException)
                 {
-                    throw new GitTfsException("An unexpected error occured when trying to find the root changeset.\nFailed to get query history for " + tfsPathBranchToCreate);
+                    throw new GitTfsException("An unexpected error occured when trying to find the root changeset.\nFailed to query history for " + tfsPathBranchToCreate);
                 }
             }
             catch (FeatureNotSupportedException ex)
