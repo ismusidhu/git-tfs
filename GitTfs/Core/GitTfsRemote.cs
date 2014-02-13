@@ -311,7 +311,12 @@ namespace Sep.Git.Tfs.Core
 
         public IFetchResult FetchWithMerge(long mergeChangesetId, bool stopOnFailMergeCommit = false, params string[] parentCommitsHashes)
         {
-            var fetchResult = new FetchResult{IsSuccess = true};
+            return FetchWithMerge(mergeChangesetId, stopOnFailMergeCommit, -1, parentCommitsHashes);
+        }
+
+        public IFetchResult FetchWithMerge(long mergeChangesetId, bool stopOnFailMergeCommit = false, int lastChangesetIdToFetch = -1, params string[] parentCommitsHashes)
+        {
+            var fetchResult = new FetchResult { IsSuccess = true };
             var fetchedChangesets = FetchChangesets();
             int count = 0;
             var objects = new Dictionary<string, GitObject>(StringComparer.InvariantCultureIgnoreCase);
@@ -319,10 +324,16 @@ namespace Sep.Git.Tfs.Core
             {
                 count++;
                 var log = Apply(MaxCommitHash, changeset, objects);
-                if (changeset.IsMergeChangeset && !ProcessMergeChangeset(changeset, stopOnFailMergeCommit, log))
+                if (lastChangesetIdToFetch > 0 && changeset.Summary.ChangesetId > lastChangesetIdToFetch)
                 {
                     fetchResult.NewChangesetCount = count;
+                    fetchResult.LastFetchedChangesetId = MaxChangesetId;
+                    return fetchResult;
+                }
+                if (changeset.IsMergeChangeset && !ProcessMergeChangeset(changeset, stopOnFailMergeCommit, log))
+                {
                     fetchResult.IsSuccess = false;
+                    fetchResult.NewChangesetCount = count;
                     fetchResult.LastFetchedChangesetId = MaxChangesetId;
                     return fetchResult;
                 }
@@ -342,32 +353,41 @@ namespace Sep.Git.Tfs.Core
 
         private bool ProcessMergeChangeset(ITfsChangeset changeset, bool stopOnFailMergeCommit, LogEntry log)
         {
-            var parentChangesetId = Tfs.FindMergeChangesetParent(TfsRepositoryPath, changeset.Summary.ChangesetId, this);
-            var shaParent = Repository.FindCommitHashByChangesetId(parentChangesetId);
-            if (shaParent == null)
-                shaParent = FindMergedRemoteAndFetch(parentChangesetId, stopOnFailMergeCommit);
-            if (shaParent != null)
+            if (!Tfs.CanGetBranchInformation)
             {
-                log.CommitParents.Add(shaParent);
+                stdout.WriteLine("info: this changeset " + changeset.Summary.ChangesetId +
+                                 " is a merge changeset. But was not treated as is because this version of TFS can't manage branches...");
+            }
+            else if (Repository.GetConfig(GitTfsConstants.IgnoreBranches) != true.ToString())
+            {
+                var parentChangesetId = Tfs.FindMergeChangesetParent(TfsRepositoryPath, changeset.Summary.ChangesetId, this);
+                var shaParent = Repository.FindCommitHashByChangesetId(parentChangesetId);
+                if (shaParent == null)
+                    shaParent = FindMergedRemoteAndFetch(parentChangesetId, stopOnFailMergeCommit);
+                if (shaParent != null)
+                {
+                    log.CommitParents.Add(shaParent);
+                }
+                else
+                {
+                    if (stopOnFailMergeCommit)
+                        return false;
+
+                    stdout.WriteLine("warning: this changeset " + changeset.Summary.ChangesetId +
+                                     " is a merge changeset. But git-tfs failed to find and fetch the parent changeset "
+                                     + parentChangesetId + ". Parent changeset will be ignored...");
+                }
             }
             else
             {
-                if (stopOnFailMergeCommit)
-                {
-                    return false;
-                }
-                //TODO : Manage case where there is not yet a git commit for the parent changset!!!!!
-                stdout.WriteLine("warning: this changeset " + changeset.Summary.ChangesetId +
-                                 " is a merge changeset. But it can't have been managed accordingly because one of the parent changeset "
-                                 + parentChangesetId +
-                                 " is not present in the repository! If you want to do it, fetch the branch containing this changeset before retrying...");
+                stdout.WriteLine("info: this changeset " + changeset.Summary.ChangesetId +
+                                 " is a merge changeset. But was not treated as is because of your git setting...");
             }
             return true;
         }
 
         private void ProcessChangeset(ITfsChangeset changeset, LogEntry log)
         {
-
             if (ExportMetadatas)
             {
                 if (changeset.Summary.Workitems.Any())
@@ -441,16 +461,48 @@ namespace Sep.Git.Tfs.Core
             foreach (var tfsRemote in tfsRemotes.Where(r=>string.Compare(r.TfsRepositoryPath, this.TfsRepositoryPath, StringComparison.InvariantCultureIgnoreCase) != 0))
             {
                 stdout.WriteLine("\tFetching from dependent TFS remote {0}...", tfsRemote.Id);
-                var fetchResult = tfsRemote.Fetch(stopOnFailMergeCommit);
+                var fetchResult = ((GitTfsRemote)tfsRemote).FetchWithMerge(-1, stopOnFailMergeCommit, parentChangesetId);
             }
             return Repository.FindCommitHashByChangesetId(parentChangesetId);
         }
 
-        private IEnumerable<IGitTfsRemote> FindTfsRemoteOfChangeset(IChangeset changeset)
+        private IEnumerable<IGitTfsRemote> FindTfsRemoteOfChangeset(IChangeset parentChangeset)
         {
             //I think you want something that uses GetPathInGitRepo and ShouldSkip. See TfsChangeset.Apply.
             //Don't know if there is a way to extract remote tfs repository path from changeset datas! Should be better!!!
-            return Repository.ReadAllTfsRemotes().Where(r => changeset.Changes.Any(c => r.GetPathInGitRepo(c.Item.ServerItem) != null));
+            var remote = Repository.ReadAllTfsRemotes().FirstOrDefault(r => parentChangeset.Changes.Any(c => r.GetPathInGitRepo(c.Item.ServerItem) != null));
+            if (remote != null)
+                return new List<IGitTfsRemote>(){remote};
+            var tfsBranch = Tfs.GetBranches(true).SingleOrDefault(b =>
+                parentChangeset.Changes.First().Item.ServerItem.StartsWith(b.Path.EndsWith("/") ? b.Path : b.Path + "/"));
+
+            if (tfsBranch == null)
+            {
+                stdout.WriteLine("error: branch not found. Verify that all the folders have been converted to branches (or something else :().");
+                return new List<IGitTfsRemote>();
+            }
+
+            if (tfsBranch.IsRoot)
+            {
+                remote = InitTfsBranch(this.remoteOptions, tfsBranch.Path);
+                return new List<IGitTfsRemote>() {remote};
+            }
+
+            var branchesDatas = Tfs.GetRootChangesetForBranch(tfsBranch.Path);
+
+            if(branchesDatas.Count > 1)
+                throw new NotImplementedException("TODO: Manage renamed branch by integrating IniTBranch.InitBranchSupportingRename() here");
+
+
+            var sha1RootCommit = Repository.FindCommitHashByChangesetId(branchesDatas.First().RootChangeset);
+            if (string.IsNullOrWhiteSpace(sha1RootCommit))
+            {
+                return null;
+            }
+
+            remote = InitBranch(this.remoteOptions, tfsBranch.Path, sha1RootCommit);
+
+            return new List<IGitTfsRemote>(){remote};
         }
 
         private string CommitChangeset(ITfsChangeset changeset, string parent)
@@ -709,5 +761,53 @@ namespace Sep.Git.Tfs.Core
         {
             return TfsUrl.Equals(tfsUrl, StringComparison.OrdinalIgnoreCase) || Aliases.Contains(tfsUrl, StringComparison.OrdinalIgnoreCase);
         }
+
+        private string ExtractGitBranchNameFromTfsRepositoryPath(string tfsRepositoryPath)
+        {
+            var gitBranchName = Repository.AssertValidBranchName(tfsRepositoryPath.ToGitBranchNameFromTfsRepositoryPath());
+            stdout.WriteLine("The name of the local branch will be : " + gitBranchName);
+            return gitBranchName;
+        }
+
+        public IGitTfsRemote InitBranch(RemoteOptions remoteOptions, string tfsRepositoryPath, string sha1RootCommit, string gitBranchNameExpected = null)
+        {
+            return InitTfsBranch(remoteOptions, tfsRepositoryPath, sha1RootCommit, gitBranchNameExpected);
+        }
+
+        private IGitTfsRemote InitTfsBranch(RemoteOptions remoteOptions, string tfsRepositoryPath, string sha1RootCommit = null, string gitBranchNameExpected = null)
+        {
+            Trace.WriteLine("Begin process of creating branch for remote :" + tfsRepositoryPath);
+            // TFS string representations of repository paths do not end in trailing slashes
+            tfsRepositoryPath = (tfsRepositoryPath ?? string.Empty).TrimEnd('/');
+
+            string gitBranchName;
+            if (!string.IsNullOrWhiteSpace(gitBranchNameExpected))
+                gitBranchName = ExtractGitBranchNameFromTfsRepositoryPath(gitBranchNameExpected);
+            else
+                gitBranchName = ExtractGitBranchNameFromTfsRepositoryPath(tfsRepositoryPath);
+            if (string.IsNullOrWhiteSpace(gitBranchName))
+                throw new GitTfsException("error: The Git branch name '" + gitBranchName + "' is not valid...\n");
+            Trace.WriteLine("Git local branch will be :" + gitBranchName);
+
+            if (Repository.HasRemote(gitBranchName))
+                return Repository.ReadTfsRemote(gitBranchName);
+
+            Trace.WriteLine("Try creating remote...");
+            var tfsRemote = Repository.CreateTfsRemote(new RemoteInfo
+            {
+                Id = gitBranchName,
+                Url = this.TfsUrl,
+                Repository = tfsRepositoryPath,
+                RemoteOptions = remoteOptions
+            }, System.String.Empty);
+            if (sha1RootCommit != null)
+            {
+                if (!Repository.CreateBranch(tfsRemote.RemoteRef, sha1RootCommit))
+                    throw new GitTfsException("error: Fail to create remote branch ref file!");
+            }
+            Trace.WriteLine("Remote created!");
+            return tfsRemote;
+        }
+
     }
 }

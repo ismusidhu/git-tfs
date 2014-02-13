@@ -379,15 +379,15 @@ namespace Sep.Git.Tfs.VsFake
             return new Changeset(_versionControlServer, _script.Changesets.First(c => c.Id == changesetId));
         }
 
-        public int GetRootChangesetForBranch(string tfsPathBranchToCreate, string tfsPathParentBranch = null)
+        public IList<RootBranch> GetRootChangesetForBranch(string tfsPathBranchToCreate, string tfsPathParentBranch = null)
         {
             var firstChangesetOfBranch = _script.Changesets.FirstOrDefault(c => c.IsBranchChangeset && c.BranchChangesetDatas.BranchPath == tfsPathBranchToCreate);
             if (firstChangesetOfBranch != null)
-                return firstChangesetOfBranch.BranchChangesetDatas.RootChangesetId;
-            return -1;
+                return new List<RootBranch>{new RootBranch(firstChangesetOfBranch.BranchChangesetDatas.RootChangesetId, tfsPathBranchToCreate)};
+            return new List<RootBranch> { new RootBranch(-1, tfsPathBranchToCreate) };
         }
 
-        public IEnumerable<IBranchObject> GetBranches()
+        public IEnumerable<IBranchObject> GetBranches(bool getDeletedBranches = false)
         {
             var branches = new List<IBranchObject>();
             branches.AddRange(_script.RootBranches.Select(b => new MockBranchObject { IsRoot = true, Path = b.BranchPath, ParentPath = null }));
