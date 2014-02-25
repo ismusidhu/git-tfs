@@ -3,4 +3,5 @@
 * Don't fetch files from TFS if we're going to ignore them (#519)
 * Support custom checkin notes (#520)
 * Use LibGit2Sharp to create commits (#534, #546)
+* Support renamed tfs branches, baseless merge and automatic branch initialisation when encounter merge changeset(#480)
 * Other documentation and bug fixes (#487, #521, #523, #527)
