@@ -101,11 +101,11 @@ namespace Sep.Git.Tfs.Commands
             }
 
             IFetchResult fetchResult;
-            InitBranchSupportingRename(tfsBranchPath, gitBranchNameExpected, creationBranchData, defaultRemote, true, out fetchResult);
+            InitBranchSupportingRename(tfsBranchPath, gitBranchNameExpected, creationBranchData, defaultRemote, out fetchResult);
             return GitTfsExitCodes.OK;
         }
 
-        private IGitTfsRemote InitBranchSupportingRename(string tfsBranchPath, string gitBranchNameExpected, IList<RootBranch> creationBranchData, IGitTfsRemote defaultRemote, bool failWithException, out IFetchResult fetchResult)
+        private IGitTfsRemote InitBranchSupportingRename(string tfsBranchPath, string gitBranchNameExpected, IList<RootBranch> creationBranchData, IGitTfsRemote defaultRemote, out IFetchResult fetchResult)
         {
             fetchResult = null;
             _stdout.WriteLine("Branches to Initialize successively :");
@@ -118,31 +118,25 @@ namespace Sep.Git.Tfs.Commands
             var remoteToDelete = new List<IGitTfsRemote>();
             foreach (var rootBranch in creationBranchData)
             {
-                Trace.WriteLine("Processing " + (rootBranch.IsRenamedBranch ? "renamed " : string.Empty) + "branch :" + rootBranch.TfsBranchPath + " (" +
-                                rootBranch.RootChangeset + ")");
+                Trace.WriteLine("Processing " + (rootBranch.IsRenamedBranch ? "renamed " : string.Empty) + "branch :"
+                    + rootBranch.TfsBranchPath + " (" + rootBranch.RootChangeset + ")");
                 var cbd = new BranchCreationDatas() {RootChangesetId = rootBranch.RootChangeset, TfsRepositoryPath = rootBranch.TfsBranchPath};
                 if (cbd.TfsRepositoryPath == tfsBranchPath)
                     cbd.GitBranchNameExpected = gitBranchNameExpected;
 
                 cbd.Sha1RootCommit = _globals.Repository.FindCommitHashByChangesetId(cbd.RootChangesetId);
                 if (string.IsNullOrWhiteSpace(cbd.Sha1RootCommit))
-                {
-                    if (failWithException)
-                        throw new GitTfsException("error: The root changeset " + cbd.RootChangesetId +
-                                                  " have not be found in the Git repository. The branch containing the changeset should not have been created. Please do it before retrying!!\n");
-                    return null;
-                }
+                    throw new GitTfsException("error: The root changeset " + cbd.RootChangesetId +
+                                              " have not be found in the Git repository. The branch containing the changeset should not have been created. Please do it before retrying!!\n");
 
                 Trace.WriteLine("Found commit " + cbd.Sha1RootCommit + " for changeset :" + cbd.RootChangesetId);
 
                 tfsRemote = defaultRemote.InitBranch(_remoteOptions, cbd.TfsRepositoryPath, cbd.Sha1RootCommit, cbd.GitBranchNameExpected);
-                RemoteCreated = tfsRemote;
                 if (rootBranch.IsRenamedBranch || !NoFetch)
                 {
                     fetchResult = FetchRemote(tfsRemote, false, !DontCreateGitBranch && !rootBranch.IsRenamedBranch);
                     if(fetchResult.IsSuccess && rootBranch.IsRenamedBranch)
                         remoteToDelete.Add(tfsRemote);
-                    
                 }
                 else
                     Trace.WriteLine("Not fetching changesets, --nofetch option specified");
@@ -151,7 +145,7 @@ namespace Sep.Git.Tfs.Commands
             {
                 _globals.Repository.DeleteTfsRemote(gitTfsRemote);
             }
-            return tfsRemote;
+            return RemoteCreated = tfsRemote;
         }
 
         class BranchCreationDatas
@@ -239,7 +233,7 @@ namespace Sep.Git.Tfs.Commands
                             try
                             {
                                 IFetchResult fetchResult;
-                                tfsBranch.TfsRemote = InitBranchSupportingRename(tfsBranch.TfsRepositoryPath, null, tfsBranch.CreationBranchData, defaultRemote, false, out fetchResult);
+                                tfsBranch.TfsRemote = InitBranchSupportingRename(tfsBranch.TfsRepositoryPath, null, tfsBranch.CreationBranchData, defaultRemote, out fetchResult);
                                 if (tfsBranch.TfsRemote != null)
                                 {
                                     tfsBranch.IsEntirelyFetched = fetchResult.IsSuccess;
