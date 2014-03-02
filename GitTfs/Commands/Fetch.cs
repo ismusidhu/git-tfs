@@ -95,11 +95,11 @@ namespace Sep.Git.Tfs.Commands
 
         private void FetchRemote(bool stopOnFailMergeCommit, IGitTfsRemote remote)
         {
-            stdout.WriteLine("Fetching from TFS remote {0}...", remote.Id);
+            stdout.WriteLine("Fetching from TFS remote '{0}'...", remote.Id);
             DoFetch(remote, stopOnFailMergeCommit);
             if (labels != null && FetchLabels)
             {
-                stdout.WriteLine("Fetching labels from TFS remote {0}...", remote.Id);
+                stdout.WriteLine("Fetching labels from TFS remote '{0}'...", remote.Id);
                 labels.Run(remote);
             }
         }

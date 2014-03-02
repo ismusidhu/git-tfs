@@ -8,7 +8,8 @@ namespace Sep.Git.Tfs.Commands
 {
     [Pluggable("bootstrap")]
     [RequiresValidGitRepository]
-    [Description("bootstrap [parent-commit]")]
+    [Description("bootstrap [parent-commit]\n" +
+        " info: if none of your tfs remote exists, always checkout and bootstrap your main remote first.\n")]
     public class Bootstrap : GitTfsCommand
     {
         private readonly RemoteOptions _remoteOptions;
@@ -34,7 +35,7 @@ namespace Sep.Git.Tfs.Commands
 
         public int Run(string commitish)
         {
-            var tfsParents = _globals.Repository.GetLastParentTfsCommits(commitish, true);
+            var tfsParents = _globals.Repository.GetLastParentTfsCommits(commitish);
             foreach (var parent in tfsParents)
             {
                 GitCommit commit = _globals.Repository.GetCommit(parent.GitCommit);
@@ -54,7 +55,7 @@ namespace Sep.Git.Tfs.Commands
                         RemoteOptions = _remoteOptions,
                     }, string.Empty);
                     remote.UpdateTfsHead(parent.GitCommit, parent.ChangesetId);
-                    _stdout.WriteLine("-> new remote " + remote.Id);
+                    _stdout.WriteLine("-> new remote '" + remote.Id + "'");
                 }
                 else
                 {
@@ -77,7 +78,10 @@ namespace Sep.Git.Tfs.Commands
         private string GetRemoteId(TfsChangesetInfo parent)
         {
             if (IsAvailable(GitTfsConstants.DefaultRepositoryId))
+            {
+                _stdout.WriteLine("info: '" + parent.Remote.TfsRepositoryPath + "' will be bootstraped as your main remote...");
                 return GitTfsConstants.DefaultRepositoryId;
+            }
 
             //Remove '$/'!
             var expectedRemoteId = parent.Remote.TfsRepositoryPath.Substring(2).Trim('/');
