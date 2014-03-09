@@ -22,8 +22,10 @@ namespace Sep.Git.Tfs
         private readonly GitTfsCommandRunner _runner;
         private readonly Globals _globals;
         private TextWriter _stdout;
+        private Bootstrap _bootstrap;
 
-        public GitTfs(ITfsHelper tfsHelper, GitTfsCommandFactory commandFactory, IHelpHelper help, IContainer container, IGitTfsVersionProvider gitTfsVersionProvider, GitTfsCommandRunner runner, Globals globals , TextWriter stdout)
+        public GitTfs(ITfsHelper tfsHelper, GitTfsCommandFactory commandFactory, IHelpHelper help, IContainer container,
+            IGitTfsVersionProvider gitTfsVersionProvider, GitTfsCommandRunner runner, Globals globals, TextWriter stdout, Bootstrap bootstrap)
         {
             this.tfsHelper = tfsHelper;
             this.commandFactory = commandFactory;
@@ -33,6 +35,7 @@ namespace Sep.Git.Tfs
             _runner = runner;
             _globals = globals;
             _stdout = stdout;
+            _bootstrap = bootstrap;
         }
 
         public int Run(IList<string> args)
@@ -56,14 +59,17 @@ namespace Sep.Git.Tfs
                 {
                     throw new Exception("error: you can't use -i and -I option in the same time!");
                 }
-                var remotes = _globals.Repository.GetLastParentTfsCommits("HEAD");
-                if (!remotes.Any())
+                var changesetsWithRemote = _globals.Repository.GetLastParentTfsCommits("HEAD");
+                if (!changesetsWithRemote.Any())
                 {
                     throw new Exception("No TFS parents found!");
                 }
-                var foundRemote = remotes.First().Remote;
-                if(foundRemote.IsDerived)
-                    _stdout.WriteLine("Need to bootstrap: " + foundRemote.RemoteRef);
+                var foundRemote = changesetsWithRemote.First().Remote;
+                if (foundRemote.IsDerived)
+                {
+                    _stdout.WriteLine("Bootstraping tfs remote...");
+                    foundRemote = _bootstrap.CreateRemote(changesetsWithRemote.First());
+                }
 
                 _globals.UserSpecifiedRemoteId = foundRemote.Id;
                 _stdout.WriteLine("Working with tfs remote: " + _globals.RemoteId);
