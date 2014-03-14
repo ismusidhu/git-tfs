@@ -323,6 +323,16 @@ namespace Sep.Git.Tfs.Commands
                 }
             } while (branchesToProcess.Any(b => !b.IsEntirelyFetched && b.Error == null) && isSomethingDone);
 
+            try
+            {
+                _globals.Repository.CommandNoisy("gc");
+            }
+            catch (Exception e)
+            {
+                Trace.WriteLine(e);
+                _stdout.WriteLine("Warning: `git gc` failed!");
+            }
+
             if (branchesToProcess.Any(b => !b.IsEntirelyFetched))
             {
                 _stdout.WriteLine("warning: Some Tfs branches could not have been initialized:");

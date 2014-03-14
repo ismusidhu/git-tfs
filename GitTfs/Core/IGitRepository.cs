@@ -24,7 +24,7 @@ namespace Sep.Git.Tfs.Core
         TfsChangesetInfo GetTfsChangesetById(string remoteRef, long changesetId);
         TfsChangesetInfo GetTfsCommit(string sha);
         TfsChangesetInfo GetCurrentTfsCommit();
-        IDictionary<string, GitObject> GetObjects();
+        IDictionary<string, GitObject> CreateObjectsDictionary();
         IDictionary<string, GitObject> GetObjects(string commit);
         IDictionary<string, GitObject> GetObjects(string commit, IDictionary<string, GitObject> initialTree);
         IGitTreeBuilder GetTreeBuilder(string commit);

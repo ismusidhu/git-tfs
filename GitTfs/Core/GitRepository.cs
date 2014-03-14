@@ -339,7 +339,7 @@ namespace Sep.Git.Tfs.Core
             return null;
         }
 
-        public IDictionary<string, GitObject> GetObjects()
+        public IDictionary<string, GitObject> CreateObjectsDictionary()
         {
             return new Dictionary<string, GitObject>(StringComparer.InvariantCultureIgnoreCase);
         }
@@ -355,7 +355,7 @@ namespace Sep.Git.Tfs.Core
 
         public IDictionary<string, GitObject> GetObjects(string commit)
         {
-            var entries = GetObjects();
+            var entries = CreateObjectsDictionary();
             return GetObjects(commit, entries);
         }
 

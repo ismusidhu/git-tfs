@@ -85,7 +85,7 @@ namespace Sep.Git.Tfs.Core
 
         public IEnumerable<TfsTreeEntry> GetFullTree()
         {
-            var treeInfo = Summary.Remote.Repository.GetObjects();
+            var treeInfo = Summary.Remote.Repository.CreateObjectsDictionary();
             var resolver = new PathResolver(Summary.Remote, treeInfo);
             
             IItem[] tfsItems;

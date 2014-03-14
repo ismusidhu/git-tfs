@@ -385,7 +385,9 @@ namespace Sep.Git.Tfs.Core
                 else
                 {
                     if (stopOnFailMergeCommit)
+                    {
                         return false;
+                    }
 
                     stdout.WriteLine("warning: this changeset " + changeset.Summary.ChangesetId +
                                  " is a merge changeset. But git-tfs failed to find and fetch the parent changeset "

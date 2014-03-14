@@ -111,7 +111,7 @@ namespace Sep.Git.Tfs.VsCommon
                     throw new GitTfsException("error : the branch you try to init '" + tfsPathBranchToCreate + "' is a root branch (e.g. has no parents).",
                         new List<string> { "Clone this branch from Tfs instead of trying to init it!\n   Command: git tfs clone " + Url + " " + tfsPathBranchToCreate });
                 }
-                
+
                 tfsPathParentBranch = tfsParentBranch;
                 Trace.WriteLine("Found parent branch : " + tfsPathParentBranch);
 
@@ -131,7 +131,6 @@ namespace Sep.Git.Tfs.VsCommon
                     string renameFromBranch;
                     var rootChangesetInParentBranch =
                         GetRelevantChangesetBasedOnChangeType(mergedItemsToFirstChangesetInBranchToCreate, tfsPathParentBranch, tfsPathBranchToCreate, out renameFromBranch);
-
 
                     AddNewRootBranch(rootBranches, new RootBranch(rootChangesetInParentBranch, tfsPathBranchToCreate));
                     Trace.WriteLineIf(renameFromBranch != null, "Found original branch '" + renameFromBranch + "' (renamed in branch '" + tfsPathBranchToCreate + "')");
