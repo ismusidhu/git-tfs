@@ -275,7 +275,7 @@ namespace Sep.Git.Tfs.Commands
 
                 branchesToProcess.Add(branchDatas);
             }
-            branchesToProcess.Add(new BranchDatas { TfsRepositoryPath = defaultRemote.TfsRepositoryPath, TfsRemote = defaultRemote, RootChangesetId = -1 });
+            branchesToProcess.Add(new BranchDatas {TfsRepositoryPath = defaultRemote.TfsRepositoryPath, TfsRemote = defaultRemote, RootChangesetId = -1});
 
             bool isSomethingDone;
             do
@@ -290,7 +290,8 @@ namespace Sep.Git.Tfs.Commands
                         try
                         {
                             IFetchResult fetchResult;
-                            tfsBranch.TfsRemote = InitBranchSupportingRename(tfsBranch.TfsRepositoryPath, null, tfsBranch.CreationBranchData, defaultRemote, out fetchResult);
+                            tfsBranch.TfsRemote = InitBranchSupportingRename(tfsBranch.TfsRepositoryPath, null, tfsBranch.CreationBranchData, defaultRemote,
+                                                                             out fetchResult);
                             if (tfsBranch.TfsRemote != null)
                             {
                                 tfsBranch.IsEntirelyFetched = fetchResult.IsSuccess;
@@ -323,15 +324,7 @@ namespace Sep.Git.Tfs.Commands
                 }
             } while (branchesToProcess.Any(b => !b.IsEntirelyFetched && b.Error == null) && isSomethingDone);
 
-            try
-            {
-                _globals.Repository.CommandNoisy("gc");
-            }
-            catch (Exception e)
-            {
-                Trace.WriteLine(e);
-                _stdout.WriteLine("Warning: `git gc` failed!");
-            }
+            _globals.Repository.GarbageCollect();
 
             if (branchesToProcess.Any(b => !b.IsEntirelyFetched))
             {
@@ -391,31 +384,35 @@ namespace Sep.Git.Tfs.Commands
 
         private IFetchResult FetchRemote(IGitTfsRemote tfsRemote, bool stopOnFailMergeCommit, bool createBranch = true)
         {
-            Trace.WriteLine("Try fetching changesets...");
-            var fetchResult = tfsRemote.Fetch(stopOnFailMergeCommit);
-            Trace.WriteLine("Changesets fetched!");
-
-            if (fetchResult.IsSuccess && createBranch && tfsRemote.Id != GitTfsConstants.DefaultRepositoryId)
+            try
             {
-                Trace.WriteLine("Try creating the local branch...");
-                var branchRef = "refs/heads/" + tfsRemote.Id;
-                if (!_globals.Repository.HasRef(branchRef))
+                Trace.WriteLine("Try fetching changesets...");
+                var fetchResult = tfsRemote.Fetch(stopOnFailMergeCommit);
+                Trace.WriteLine("Changesets fetched!");
+
+                if (fetchResult.IsSuccess && createBranch && tfsRemote.Id != GitTfsConstants.DefaultRepositoryId)
                 {
-                    if (!_globals.Repository.CreateBranch(branchRef, tfsRemote.MaxCommitHash))
-                        _stdout.WriteLine("warning: Fail to create local branch ref file!");
+                    Trace.WriteLine("Try creating the local branch...");
+                    var branchRef = "refs/heads/" + tfsRemote.Id;
+                    if (!_globals.Repository.HasRef(branchRef))
+                    {
+                        if (!_globals.Repository.CreateBranch(branchRef, tfsRemote.MaxCommitHash))
+                            _stdout.WriteLine("warning: Fail to create local branch ref file!");
+                        else
+                            Trace.WriteLine("Local branch created!");
+                    }
                     else
-                        Trace.WriteLine("Local branch created!");
+                    {
+                        _stdout.WriteLine("info: local branch ref already exists!");
+                    }
                 }
-                else
-                {
-                    _stdout.WriteLine("info: local branch ref already exists!");
-                }
+                return fetchResult;
             }
-
-            Trace.WriteLine("Cleaning...");
-            tfsRemote.CleanupWorkspaceDirectory();
-
-            return fetchResult;
+            finally
+            {
+                Trace.WriteLine("Cleaning...");
+                tfsRemote.CleanupWorkspaceDirectory();
+            }
         }
     }
 }

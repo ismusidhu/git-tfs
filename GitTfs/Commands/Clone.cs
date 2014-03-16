@@ -80,24 +80,6 @@ namespace Sep.Git.Tfs.Commands
                 }
 
                 VerifyTfsPathToClone(tfsRepositoryPath);
-
-                if (withBranches && initBranch != null)
-                    fetch.IgnoreBranches = false;
-
-                if (retVal == 0)
-                {
-                    fetch.Run(withBranches);
-
-                    try
-                    {
-                        globals.Repository.CommandNoisy("gc");
-                    }
-                    catch (Exception e)
-                    {
-                        Trace.WriteLine(e);
-                        stdout.WriteLine("Warning: `git gc` failed!");
-                    }
-                }
             }
             catch
             {
@@ -128,13 +110,28 @@ namespace Sep.Git.Tfs.Commands
 
                 throw;
             }
-            if (withBranches && initBranch != null)
+            try
             {
-                initBranch.CloneAllBranches = true;
+                if (withBranches && initBranch != null)
+                    fetch.IgnoreBranches = false;
 
-                retVal = initBranch.Run();
+                if (retVal == 0)
+                {
+                    fetch.Run(withBranches);
+                    globals.Repository.GarbageCollect();
+                }
+
+                if (withBranches && initBranch != null)
+                {
+                    initBranch.CloneAllBranches = true;
+
+                    retVal = initBranch.Run();
+                }
             }
-            if (!init.IsBare) globals.Repository.CommandNoisy("merge", globals.Repository.ReadTfsRemote(globals.RemoteId).RemoteRef);
+            finally
+            {
+                if (!init.IsBare) globals.Repository.CommandNoisy("merge", globals.Repository.ReadTfsRemote(globals.RemoteId).RemoteRef);
+            }
             return retVal;
         }
 
