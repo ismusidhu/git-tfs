@@ -333,7 +333,7 @@ namespace Sep.Git.Tfs.Commands
                 {
                     _stdout.WriteLine("- " + branchNotInited.TfsRepositoryPath);
                 }
-                _stdout.WriteLine("\nPlease report this case to the git-tfs developpers! (report here : https://github.com/git-tfs/git-tfs/issues/461 )");
+                _stdout.WriteLine("\nPlease report this case to the git-tfs developers! (report here : https://github.com/git-tfs/git-tfs/issues/461 )");
             }
             if (branchesToProcess.Any(b => b.Error != null))
             {
@@ -346,7 +346,7 @@ namespace Sep.Git.Tfs.Commands
                     else
                         _stdout.WriteLine("   =>error:" + branchWithErrors.Error.Message);
                 }
-                _stdout.WriteLine("\nPlease report this case to the git-tfs developpers! (report here : https://github.com/git-tfs/git-tfs/issues )");
+                _stdout.WriteLine("\nPlease report this case to the git-tfs developers! (report here : https://github.com/git-tfs/git-tfs/issues )");
             }
         }
 
