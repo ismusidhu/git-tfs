@@ -55,11 +55,16 @@ namespace Sep.Git.Tfs.Commands
                     { "b|tfs-parent-branch=", "TFS Parent branch of the TFS branch to clone (TFS 2008 only! And required!!) ex: $/Repository/ProjectParentBranch", v => ParentBranch = v },
                     { "u|username=", "TFS username", v => TfsUsername = v },
                     { "p|password=", "TFS password", v => TfsPassword = v },
-                    { "ignore-regex=", "a regex of files to ignore", v => IgnoreRegex = v },
-                    { "except-regex=", "a regex of exceptions to ignore-regex", v => ExceptRegex = v},
-                    { "nofetch", "Create the new TFS remote but don't fetch any changesets", v => NoFetch = (v != null) }
+                    { "ignore-regex=", "A regex of files to ignore", v => IgnoreRegex = v },
+                    { "except-regex=", "A regex of exceptions to ignore-regex", v => ExceptRegex = v},
+                    { "no-fetch", "Create the new TFS remote but don't fetch any changesets", v => NoFetch = (v != null) }
                 };
             }
+        }
+
+        public int Run()
+        {
+            return Run(null, null);
         }
 
         public int Run(string tfsBranchPath)
@@ -73,15 +78,43 @@ namespace Sep.Git.Tfs.Commands
             if (!DontDisplayObsoleteMessage)
                 _stdout.WriteLine("WARNING: This command is obsolete and will be removed in the next version. Use 'branch --init' instead!");
 
+            if (!CloneAllBranches && tfsBranchPath == null)
+            {
+                _helper.Run(this);
+                return GitTfsExitCodes.Help;
+            }
+
+            if (CloneAllBranches)
+            {
+                return CloneAll(tfsBranchPath);
+            }
+            else
+            {
+                return CloneBranch(tfsBranchPath, gitBranchNameExpected);
+            }
+        }
+
+        private int CloneBranch(string tfsBranchPath, string gitBranchNameExpected)
+        {
             var defaultRemote = InitFromDefaultRemote();
 
             // TFS representations of repository paths do not have trailing slashes
             tfsBranchPath = (tfsBranchPath ?? string.Empty).TrimEnd('/');
 
-            var allRemotes = _globals.Repository.ReadAllTfsRemotes();
-
+            if (!tfsBranchPath.IsValidTfsPath())
+            {
+                var remotes = _globals.Repository.GetLastParentTfsCommits(tfsBranchPath);
+                if (!remotes.Any())
+                {
+                    throw new Exception("error: No TFS branch found!");
+                }
+                tfsBranchPath = remotes.First().Remote.TfsRepositoryPath;
+            }
             tfsBranchPath.AssertValidTfsPath();
-            if (allRemotes.Any(r => r.TfsRepositoryPath.ToLower() == tfsBranchPath.ToLower()))
+
+            var allRemotes = _globals.Repository.ReadAllTfsRemotes();
+            var remote = allRemotes.FirstOrDefault(r => r.TfsRepositoryPath.ToLower() == tfsBranchPath.ToLower());
+            if (remote != null && remote.MaxChangesetId != 0)
             {
                 _stdout.WriteLine("warning : There is already a remote for this tfs branch. Branch ignored!");
                 return GitTfsExitCodes.InvalidArguments;
@@ -97,7 +130,7 @@ namespace Sep.Git.Tfs.Commands
                     throw new GitTfsException("error: The Tfs parent branch '" + ParentBranch +
                                               "' can not be found in the Git repository\nPlease init it first and try again...\n");
 
-                creationBranchData = defaultRemote.Tfs.GetRootChangesetForBranch(tfsBranchPath, tfsRepositoryPathParentBranchFound.TfsRepositoryPath);
+                creationBranchData = defaultRemote.Tfs.GetRootChangesetForBranch(tfsBranchPath, -1, tfsRepositoryPathParentBranchFound.TfsRepositoryPath);
             }
 
             IFetchResult fetchResult;
@@ -124,14 +157,11 @@ namespace Sep.Git.Tfs.Commands
                 if (cbd.TfsRepositoryPath == tfsBranchPath)
                     cbd.GitBranchNameExpected = gitBranchNameExpected;
 
-                cbd.Sha1RootCommit = _globals.Repository.FindCommitHashByChangesetId(cbd.RootChangesetId);
-                if (string.IsNullOrWhiteSpace(cbd.Sha1RootCommit))
-                    throw new GitTfsException("error: The root changeset " + cbd.RootChangesetId +
-                                              " have not be found in the Git repository. The branch containing the changeset should not have been created. Please do it before retrying!!\n");
-
-                Trace.WriteLine("Found commit " + cbd.Sha1RootCommit + " for changeset :" + cbd.RootChangesetId);
-
-                tfsRemote = defaultRemote.InitBranch(_remoteOptions, cbd.TfsRepositoryPath, cbd.Sha1RootCommit, cbd.GitBranchNameExpected);
+                tfsRemote = defaultRemote.InitBranch(_remoteOptions, cbd.TfsRepositoryPath, cbd.RootChangesetId, !NoFetch, cbd.GitBranchNameExpected);
+                if (tfsRemote == null)
+                {
+                    throw new GitTfsException("error: Couldn't fetch parent branch\n");
+                }
                 if (rootBranch.IsRenamedBranch || !NoFetch)
                 {
                     fetchResult = FetchRemote(tfsRemote, false, !DontCreateGitBranch && !rootBranch.IsRenamedBranch);
@@ -139,7 +169,7 @@ namespace Sep.Git.Tfs.Commands
                         remoteToDelete.Add(tfsRemote);
                 }
                 else
-                    Trace.WriteLine("Not fetching changesets, --nofetch option specified");
+                    Trace.WriteLine("Not fetching changesets, --no-fetch option specified");
             }
             foreach (var gitTfsRemote in remoteToDelete)
             {
@@ -153,9 +183,9 @@ namespace Sep.Git.Tfs.Commands
             public string TfsRepositoryPath { get; set; }
             public string GitBranchNameExpected { get; set; }
             public long RootChangesetId { get; set; }
-            public string Sha1RootCommit { get; set; }
         }
 
+        [DebuggerDisplay("{TfsRepositoryPath} C{RootChangesetId}")]
         class BranchDatas
         {
             public string TfsRepositoryPath { get; set; }
@@ -166,134 +196,159 @@ namespace Sep.Git.Tfs.Commands
             public Exception Error { get; set; }
         }
 
-        public int Run()
+        private int CloneAll(string gitRemote)
         {
-            //[Temporary] Remove in the next version!
-            if (!DontDisplayObsoleteMessage)
-                _stdout.WriteLine("WARNING: This command is obsolete and will be removed in the next version. Use 'branch --init' instead!");
-
-            if (CloneAllBranches && NoFetch)
-                throw new GitTfsException("error: --nofetch cannot be used with --all");
-
-            if (!CloneAllBranches)
-            {
-                _helper.Run(this);
-                return GitTfsExitCodes.Help;
-            }
+            if (NoFetch)
+                throw new GitTfsException("error: --no-fetch cannot be used with --all");
 
             _globals.Repository.SetConfig(GitTfsConstants.IgnoreBranches, false.ToString());
 
             var defaultRemote = InitFromDefaultRemote();
 
-            var rootBranch = defaultRemote.Tfs.GetRootTfsBranchForRemotePath(defaultRemote.TfsRepositoryPath);
-            if (rootBranch == null)
-                throw new GitTfsException(string.Format("error: Init all the branches is only possible when 'git tfs clone' was done from the trunk!!! '{0}' is not a TFS branch!", defaultRemote.TfsRepositoryPath));
-            if (defaultRemote.TfsRepositoryPath.ToLower() != rootBranch.Path.ToLower())
-               throw new GitTfsException(string.Format("error: Init all the branches is only possible when 'git tfs clone' was done from the trunk!!! Please clone again from '{0}'...", rootBranch.Path));
-
-            var childBranchPaths = rootBranch.GetAllChildren().Select(b => new BranchDatas {TfsRepositoryPath = b.Path}).ToList();
-
-            if (childBranchPaths.Any())
+            if (gitRemote == null)
             {
-                _stdout.WriteLine("Tfs branches found:");
-                var branchesToProcess = new List<BranchDatas>();
-                foreach (var tfsBranchPath in childBranchPaths)
-                {
-                    _stdout.WriteLine("- " + tfsBranchPath.TfsRepositoryPath);
-                    var branchDatas = new BranchDatas
-                        {
-                            TfsRepositoryPath = tfsBranchPath.TfsRepositoryPath,
-                            TfsRemote = _globals.Repository.ReadAllTfsRemotes().FirstOrDefault(r => r.TfsRepositoryPath == tfsBranchPath.TfsRepositoryPath)
-                        };
-                    try
-                    {
-                        branchDatas.CreationBranchData = defaultRemote.Tfs.GetRootChangesetForBranch(tfsBranchPath.TfsRepositoryPath);
-                    }
-                    catch (Exception ex)
-                    {
-                        branchDatas.Error = ex;
-                    }
-                    
-                    branchesToProcess.Add(branchDatas);
-                }
-                branchesToProcess.Add(new BranchDatas {TfsRepositoryPath = defaultRemote.TfsRepositoryPath, TfsRemote = defaultRemote, RootChangesetId = -1});
+                var rootBranch = defaultRemote.Tfs.GetRootTfsBranchForRemotePath(defaultRemote.TfsRepositoryPath);
+                if (rootBranch == null)
+                    throw new GitTfsException(string.Format("error: Init all the branches is only possible when 'git tfs clone' was done from the trunk!!! '{0}' is not a TFS branch!", defaultRemote.TfsRepositoryPath));
+                if (defaultRemote.TfsRepositoryPath.ToLower() != rootBranch.Path.ToLower())
+                    throw new GitTfsException(string.Format("error: Init all the branches is only possible when 'git tfs clone' was done from the trunk!!! Please clone again from '{0}'...", rootBranch.Path));
 
-                bool isSomethingDone;
-                do
-                {
-                    isSomethingDone = false;
-                    var branchesToFetch = branchesToProcess.Where(b => !b.IsEntirelyFetched && b.Error == null).ToList();
-                    foreach (var tfsBranch in branchesToFetch)
-                    {
-                        _stdout.WriteLine("=> Working on TFS branch : " + tfsBranch.TfsRepositoryPath);
-                        if (tfsBranch.TfsRemote == null)
-                        {
-                            try
-                            {
-                                IFetchResult fetchResult;
-                                tfsBranch.TfsRemote = InitBranchSupportingRename(tfsBranch.TfsRepositoryPath, null, tfsBranch.CreationBranchData, defaultRemote, out fetchResult);
-                                if (tfsBranch.TfsRemote != null)
-                                {
-                                    tfsBranch.IsEntirelyFetched = fetchResult.IsSuccess;
-                                    isSomethingDone = true;
-                                }
-                            }
-                            catch (Exception ex)
-                            {
-                                _stdout.WriteLine("error: an error occurs when initializing the branch. Branch is ignored and continuing...");
-                                tfsBranch.Error = ex;
-                            }
-                        }
-                        else
-                        {
-                            try
-                            {
-                                var lastFetchedChangesetId = tfsBranch.TfsRemote.MaxChangesetId;
-                                Trace.WriteLine("Fetching remote :" + tfsBranch.TfsRemote.Id);
-                                var fetchResult = FetchRemote(tfsBranch.TfsRemote, true);
-                                tfsBranch.IsEntirelyFetched = fetchResult.IsSuccess;
-                                if ( fetchResult.NewChangesetCount != 0)
-                                    isSomethingDone = true;
-                            }
-                            catch (Exception ex)
-                            {
-                                _stdout.WriteLine("error: an error occurs when fetching changeset. Fetching is stopped and continuing...");
-                                tfsBranch.Error = ex;
-                            }
-                        }
-                    }
-                } while (branchesToProcess.Any(b => !b.IsEntirelyFetched && b.Error == null) && isSomethingDone);
+                var childBranchPaths = rootBranch.GetAllChildren().Select(b => new BranchDatas { TfsRepositoryPath = b.Path }).ToList();
 
-                if (branchesToProcess.Any(b => !b.IsEntirelyFetched))
+                if (childBranchPaths.Any())
                 {
-                    _stdout.WriteLine("warning: Some Tfs branches could not have been initialized:");
-                    foreach (var branchNotInited in branchesToProcess.Where(b => !b.IsEntirelyFetched))
-                    {
-                        _stdout.WriteLine("- " + branchNotInited.TfsRepositoryPath);
-                    }
-                    _stdout.WriteLine("\nPlease report this case to the git-tfs developpers! (report here : https://github.com/git-tfs/git-tfs/issues/461 )");
+                    InitializeBranches(defaultRemote, childBranchPaths);
                 }
-                if (branchesToProcess.Any(b => b.Error != null))
+                else
                 {
-                    _stdout.WriteLine("warning: Some Tfs branches could not have been initialized or entirely fetched due to errors:");
-                    foreach (var branchWithErrors in branchesToProcess.Where(b => b.Error != null))
-                    {
-                        _stdout.WriteLine("- " + branchWithErrors.TfsRepositoryPath);
-                        if(_globals.DebugOutput)
-                            Trace.WriteLine("   =>error:" + branchWithErrors.Error);
-                        else
-                            _stdout.WriteLine("   =>error:" + branchWithErrors.Error.Message);
-                    }
-                    _stdout.WriteLine("\nPlease report this case to the git-tfs developpers! (report here : https://github.com/git-tfs/git-tfs/issues )");
+                    _stdout.WriteLine("No other Tfs branches found.");
                 }
             }
             else
             {
-                _stdout.WriteLine("No other Tfs branches found.");
+                var branches = defaultRemote.Repository.GetGitRemoteBranches(gitRemote);
+                var childBranchPaths = new Dictionary<string, BranchDatas>();
+                foreach (var branch in branches)
+                {
+                    var remotes = _globals.Repository.GetLastParentTfsCommits(branch);
+                    if (!remotes.Any())
+                    {
+                        continue;
+                    }
+                    var tfsPath = remotes.First().Remote.TfsRepositoryPath;
+                    if (!childBranchPaths.ContainsKey(tfsPath))
+                        childBranchPaths.Add(tfsPath, new BranchDatas { TfsRepositoryPath = tfsPath });
+                }
+
+                if (childBranchPaths.Any())
+                {
+                    InitializeBranches(defaultRemote, childBranchPaths.Values.ToList());
+                }
+                else
+                {
+                    _stdout.WriteLine("No other Tfs branches found.");
+                }
             }
             return GitTfsExitCodes.OK;
         }
 
+        private void InitializeBranches(IGitTfsRemote defaultRemote, List<BranchDatas> childBranchPaths)
+        {
+            _stdout.WriteLine("Tfs branches found:");
+            var branchesToProcess = new List<BranchDatas>();
+            foreach (var tfsBranchPath in childBranchPaths)
+            {
+                _stdout.WriteLine("- " + tfsBranchPath.TfsRepositoryPath);
+                var branchDatas = new BranchDatas
+                    {
+                        TfsRepositoryPath = tfsBranchPath.TfsRepositoryPath,
+                        TfsRemote = _globals.Repository.ReadAllTfsRemotes().FirstOrDefault(r => r.TfsRepositoryPath == tfsBranchPath.TfsRepositoryPath)
+                    };
+                try
+                {
+                    branchDatas.CreationBranchData = defaultRemote.Tfs.GetRootChangesetForBranch(tfsBranchPath.TfsRepositoryPath);
+                }
+                catch (Exception ex)
+                {
+                    branchDatas.Error = ex;
+                }
+
+                branchesToProcess.Add(branchDatas);
+            }
+            branchesToProcess.Add(new BranchDatas {TfsRepositoryPath = defaultRemote.TfsRepositoryPath, TfsRemote = defaultRemote, RootChangesetId = -1});
+
+            bool isSomethingDone;
+            do
+            {
+                isSomethingDone = false;
+                var branchesToFetch = branchesToProcess.Where(b => !b.IsEntirelyFetched && b.Error == null).ToList();
+                foreach (var tfsBranch in branchesToFetch)
+                {
+                    _stdout.WriteLine("=> Working on TFS branch : " + tfsBranch.TfsRepositoryPath);
+                    if (tfsBranch.TfsRemote == null)
+                    {
+                        try
+                        {
+                            IFetchResult fetchResult;
+                            tfsBranch.TfsRemote = InitBranchSupportingRename(tfsBranch.TfsRepositoryPath, null, tfsBranch.CreationBranchData, defaultRemote,
+                                                                             out fetchResult);
+                            if (tfsBranch.TfsRemote != null)
+                            {
+                                tfsBranch.IsEntirelyFetched = fetchResult.IsSuccess;
+                                isSomethingDone = true;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _stdout.WriteLine("error: an error occurs when initializing the branch. Branch is ignored and continuing...");
+                            tfsBranch.Error = ex;
+                        }
+                    }
+                    else
+                    {
+                        try
+                        {
+                            var lastFetchedChangesetId = tfsBranch.TfsRemote.MaxChangesetId;
+                            Trace.WriteLine("Fetching remote :" + tfsBranch.TfsRemote.Id);
+                            var fetchResult = FetchRemote(tfsBranch.TfsRemote, true);
+                            tfsBranch.IsEntirelyFetched = fetchResult.IsSuccess;
+                            if (fetchResult.NewChangesetCount != 0)
+                                isSomethingDone = true;
+                        }
+                        catch (Exception ex)
+                        {
+                            _stdout.WriteLine("error: an error occurs when fetching changeset. Fetching is stopped and continuing...");
+                            tfsBranch.Error = ex;
+                        }
+                    }
+                }
+            } while (branchesToProcess.Any(b => !b.IsEntirelyFetched && b.Error == null) && isSomethingDone);
+
+            _globals.Repository.GarbageCollect();
+
+            if (branchesToProcess.Any(b => !b.IsEntirelyFetched))
+            {
+                _stdout.WriteLine("warning: Some Tfs branches could not have been initialized:");
+                foreach (var branchNotInited in branchesToProcess.Where(b => !b.IsEntirelyFetched))
+                {
+                    _stdout.WriteLine("- " + branchNotInited.TfsRepositoryPath);
+                }
+                _stdout.WriteLine("\nPlease report this case to the git-tfs developers! (report here : https://github.com/git-tfs/git-tfs/issues/461 )");
+            }
+            if (branchesToProcess.Any(b => b.Error != null))
+            {
+                _stdout.WriteLine("warning: Some Tfs branches could not have been initialized or entirely fetched due to errors:");
+                foreach (var branchWithErrors in branchesToProcess.Where(b => b.Error != null))
+                {
+                    _stdout.WriteLine("- " + branchWithErrors.TfsRepositoryPath);
+                    if (_globals.DebugOutput)
+                        Trace.WriteLine("   =>error:" + branchWithErrors.Error);
+                    else
+                        _stdout.WriteLine("   =>error:" + branchWithErrors.Error.Message);
+                }
+                _stdout.WriteLine("\nPlease report this case to the git-tfs developers! (report here : https://github.com/git-tfs/git-tfs/issues )");
+            }
+        }
 
         private IGitTfsRemote InitFromDefaultRemote()
         {
@@ -329,31 +384,35 @@ namespace Sep.Git.Tfs.Commands
 
         private IFetchResult FetchRemote(IGitTfsRemote tfsRemote, bool stopOnFailMergeCommit, bool createBranch = true)
         {
-            Trace.WriteLine("Try fetching changesets...");
-            var fetchResult = tfsRemote.Fetch(stopOnFailMergeCommit);
-            Trace.WriteLine("Changesets fetched!");
-
-            if (fetchResult.IsSuccess && createBranch && tfsRemote.Id != GitTfsConstants.DefaultRepositoryId)
+            try
             {
-                Trace.WriteLine("Try creating the local branch...");
-                var branchRef = "refs/heads/" + tfsRemote.Id;
-                if (!_globals.Repository.HasRef(branchRef))
+                Trace.WriteLine("Try fetching changesets...");
+                var fetchResult = tfsRemote.Fetch(stopOnFailMergeCommit);
+                Trace.WriteLine("Changesets fetched!");
+
+                if (fetchResult.IsSuccess && createBranch && tfsRemote.Id != GitTfsConstants.DefaultRepositoryId)
                 {
-                    if (!_globals.Repository.CreateBranch(branchRef, tfsRemote.MaxCommitHash))
-                        _stdout.WriteLine("warning: Fail to create local branch ref file!");
+                    Trace.WriteLine("Try creating the local branch...");
+                    var branchRef = "refs/heads/" + tfsRemote.Id;
+                    if (!_globals.Repository.HasRef(branchRef))
+                    {
+                        if (!_globals.Repository.CreateBranch(branchRef, tfsRemote.MaxCommitHash))
+                            _stdout.WriteLine("warning: Fail to create local branch ref file!");
+                        else
+                            Trace.WriteLine("Local branch created!");
+                    }
                     else
-                        Trace.WriteLine("Local branch created!");
+                    {
+                        _stdout.WriteLine("info: local branch ref already exists!");
+                    }
                 }
-                else
-                {
-                    _stdout.WriteLine("info: local branch ref already exists!");
-                }
+                return fetchResult;
             }
-
-            Trace.WriteLine("Cleaning...");
-            tfsRemote.CleanupWorkspaceDirectory();
-
-            return fetchResult;
+            finally
+            {
+                Trace.WriteLine("Cleaning...");
+                tfsRemote.CleanupWorkspaceDirectory();
+            }
         }
     }
 }

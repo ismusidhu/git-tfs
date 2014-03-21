@@ -126,6 +126,13 @@ namespace Sep.Git.Tfs.Core
             }
         }
 
+        public IEnumerable<string> GetGitRemoteBranches(string gitRemote)
+        {
+            gitRemote = gitRemote + "/";
+            var references = _repository.Branches.Where(b => b.IsRemote && b.Name.StartsWith(gitRemote) && !b.Name.EndsWith("/HEAD"));
+            return references.Select(r => r.Name);
+        }
+
         private IDictionary<string, IGitTfsRemote> GetTfsRemotes()
         {
             return _cachedRemotes ?? (_cachedRemotes = ReadTfsRemotes());
@@ -332,14 +339,24 @@ namespace Sep.Git.Tfs.Core
             return null;
         }
 
-        public IDictionary<string, GitObject> GetObjects(string commit)
+        public IDictionary<string, GitObject> CreateObjectsDictionary()
         {
-            var entries = GetObjects();
+            return new Dictionary<string, GitObject>(StringComparer.InvariantCultureIgnoreCase);
+        }
+
+        public IDictionary<string, GitObject> GetObjects(string commit, IDictionary<string, GitObject> entries)
+        {
             if (commit != null)
             {
                 ParseEntries(entries, _repository.Lookup<Commit>(commit).Tree, commit);
             }
             return entries;
+        }
+
+        public IDictionary<string, GitObject> GetObjects(string commit)
+        {
+            var entries = CreateObjectsDictionary();
+            return GetObjects(commit, entries);
         }
 
         public IGitTreeBuilder GetTreeBuilder(string commit)
@@ -352,11 +369,6 @@ namespace Sep.Git.Tfs.Core
             {
                 return new GitTreeBuilder(_repository.ObjectDatabase, _repository.Lookup<Commit>(commit).Tree);
             }
-        }
-
-        public Dictionary<string, GitObject> GetObjects()
-        {
-            return new Dictionary<string, GitObject>(StringComparer.InvariantCultureIgnoreCase);
         }
 
         public string GetCommitMessage(string head, string parentCommitish)
@@ -488,7 +500,7 @@ namespace Sep.Git.Tfs.Core
             var reachableFromRemoteBranches = new CommitFilter
             {
                 Since = _repository.Branches.Where(p => p.IsRemote),
-                SortBy = CommitSortStrategies.None
+                SortBy = CommitSortStrategies.Time
             };
 
             if (remoteRef != null)
@@ -540,6 +552,22 @@ namespace Sep.Git.Tfs.Core
         public string GetCurrentBranch()
         {
             return _repository.Head.CanonicalName;
+        }
+
+        public void GarbageCollect(bool auto, string additionalMessage)
+        {
+            try
+            {
+                if (auto)
+                    _globals.Repository.CommandNoisy("gc", "--auto");
+                else
+                    _globals.Repository.CommandNoisy("gc");
+            }
+            catch (Exception e)
+            {
+                Trace.WriteLine(e);
+                realStdout.WriteLine("Warning: `git gc` failed! " + additionalMessage);
+            }
         }
     }
 }

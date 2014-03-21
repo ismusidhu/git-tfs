@@ -8,6 +8,7 @@ using Microsoft.TeamFoundation.VersionControl.Client;
 using Sep.Git.Tfs.Core;
 using Sep.Git.Tfs.Core.TfsInterop;
 using Sep.Git.Tfs.Util;
+using Microsoft.TeamFoundation.VersionControl.Common;
 
 namespace Sep.Git.Tfs.VsCommon
 {
@@ -411,7 +412,6 @@ namespace Sep.Git.Tfs.VsCommon
                                           _bridge.Unwrap<PolicyFailure>(policyOverrideInfo.Failures));
         }
 
-
         public ICheckinEvaluationResult EvaluateCheckin(TfsCheckinEvaluationOptions options, IPendingChange[] allChanges, IPendingChange[] changes,
                                                         string comment, string author, ICheckinNote checkinNote, IEnumerable<IWorkItemCheckinInfo> workItemChanges)
         {
@@ -431,7 +431,7 @@ namespace Sep.Git.Tfs.VsCommon
 
         public int PendEdit(string path)
         {
-            return _workspace.PendEdit(path);
+            return _workspace.PendEdit(new string[] { path }, RecursionType.None, null, LockLevel.Unchanged, false, PendChangesOptions.ForceCheckOutLocalVersion);
         }
 
         public int PendDelete(string path)
@@ -455,7 +455,7 @@ namespace Sep.Git.Tfs.VsCommon
 
         public void GetSpecificVersion(int changeset)
         {
-            _workspace.Get(new ChangesetVersionSpec(changeset), GetOptions.Overwrite | GetOptions.GetAll);
+            Retry.Do(() => _workspace.Get(new ChangesetVersionSpec(changeset), GetOptions.Overwrite | GetOptions.GetAll));
         }
 
         public void GetSpecificVersion(IChangeset changeset)
@@ -465,9 +465,15 @@ namespace Sep.Git.Tfs.VsCommon
 
         public void GetSpecificVersion(int changesetId, IEnumerable<IChange> changes)
         {
-            var requests = from change in changes
-                           select new GetRequest(new ItemSpec(change.Item.ServerItem, RecursionType.None, change.Item.DeletionId), changesetId);
-            _workspace.Get(requests.ToArray(), GetOptions.Overwrite);
+            Retry.Do(() =>
+            {
+                var requests = from change in changes
+                               select
+                                   new GetRequest(
+                                       new ItemSpec(change.Item.ServerItem, RecursionType.None, change.Item.DeletionId),
+                                       changesetId);
+                _workspace.Get(requests.ToArray(), GetOptions.Overwrite);
+            });
         }
 
         public string GetLocalItemForServerItem(string serverItem)

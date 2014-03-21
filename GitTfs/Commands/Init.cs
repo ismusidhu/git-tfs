@@ -41,6 +41,11 @@ namespace Sep.Git.Tfs.Commands
             get { return initOptions.IsBare; }
         }
 
+        public IGitHelpers GitHelper
+        {
+            get { return gitHelper; }
+        }
+
         public int Run(string tfsUrl, string tfsRepositoryPath)
         {
             tfsRepositoryPath.AssertValidTfsPath();
@@ -127,6 +132,11 @@ namespace Sep.Git.Tfs.Commands
     public static class Ext
     {
         static Regex ValidTfsPath = new Regex("^\\$/.+");
+        public static bool IsValidTfsPath(this string tfsPath)
+        {
+            return ValidTfsPath.IsMatch(tfsPath);
+        }
+
         public static void AssertValidTfsPath(this string tfsPath)
         {
             if (!ValidTfsPath.IsMatch(tfsPath))

@@ -115,11 +115,11 @@ namespace Sep.Git.Tfs.VsCommon
             get { return _linking ?? (_linking = GetService<ILinking>()); }
         }
 
-        public IEnumerable<ITfsChangeset> GetChangesets(string path, long startVersion, IGitTfsRemote remote)
+        public virtual IEnumerable<ITfsChangeset> GetChangesets(string path, long startVersion, IGitTfsRemote remote)
         {
-            var changesets = VersionControl.QueryHistory(path, VersionSpec.Latest, 0, RecursionType.Full,
+            var changesets = Retry.Do(() => VersionControl.QueryHistory(path, VersionSpec.Latest, 0, RecursionType.Full,
                 null, new ChangesetVersionSpec((int)startVersion), VersionSpec.Latest, int.MaxValue, true, true, true)
-                .Cast<Changeset>().OrderBy(changeset => changeset.ChangesetId).ToArray();
+                .Cast<Changeset>().OrderBy(changeset => changeset.ChangesetId).ToArray());
 
             // don't take the enumerator produced by a foreach statement or a yield statement, as there are references 
             // to the old (iterated) elements and thus the referenced changesets won't be disposed until all elements were iterated.
@@ -149,7 +149,7 @@ namespace Sep.Git.Tfs.VsCommon
             throw new NotImplementedException();
         }
 
-        public virtual IList<RootBranch> GetRootChangesetForBranch(string tfsPathBranchToCreate, string tfsPathParentBranch = null)
+        public virtual IList<RootBranch> GetRootChangesetForBranch(string tfsPathBranchToCreate, int lastChangesetIdToCheck = -1, string tfsPathParentBranch = null)
         {
             Trace.WriteLine("TFS 2008 Compatible mode!");
             int firstChangesetIdOfParentBranch = 1;
@@ -157,7 +157,11 @@ namespace Sep.Git.Tfs.VsCommon
             if (string.IsNullOrWhiteSpace(tfsPathParentBranch))
                 throw new GitTfsException("This version of TFS Server doesn't permit to use this command :(\nTry using option '--parent-branch'...");
 
-            var changesetIdsFirstChangesetInMainBranch = VersionControl.GetMergeCandidates(tfsPathParentBranch, tfsPathBranchToCreate, RecursionType.Full).Select(c => c.Changeset.ChangesetId).FirstOrDefault();
+            if (lastChangesetIdToCheck == -1)
+                lastChangesetIdToCheck = int.MaxValue;
+
+            var changesetIdsFirstChangesetInMainBranch = VersionControl.GetMergeCandidates(tfsPathParentBranch, tfsPathBranchToCreate, RecursionType.Full)
+                .Select(c => c.Changeset.ChangesetId).Where(c => c <= lastChangesetIdToCheck).FirstOrDefault();
 
             if (changesetIdsFirstChangesetInMainBranch == 0)
             {
@@ -181,7 +185,7 @@ namespace Sep.Git.Tfs.VsCommon
                                 null, new ChangesetVersionSpec(lowerBound), new ChangesetVersionSpec(upperBound), int.MaxValue, false,
                                 false, false).Cast<Changeset>().Select(c => c.ChangesetId).ToList();
                 if (firstBranchChangesetIds.Count != 0)
-                    return new List<RootBranch> { new RootBranch(firstBranchChangesetIds.First(cId => cId < changesetIdsFirstChangesetInMainBranch), tfsPathBranchToCreate)};
+                    return new List<RootBranch> { new RootBranch(firstBranchChangesetIds.First(cId => cId < changesetIdsFirstChangesetInMainBranch), tfsPathBranchToCreate) };
                 else
                 {
                     if (upperBound == 1)
@@ -194,7 +198,7 @@ namespace Sep.Git.Tfs.VsCommon
             }
         }
 
-        private ITfsChangeset BuildTfsChangeset(Changeset changeset, IGitTfsRemote remote)
+        protected ITfsChangeset BuildTfsChangeset(Changeset changeset, IGitTfsRemote remote)
         {
             var tfsChangeset = _container.With<ITfsHelper>(this).With<IChangeset>(_bridge.Wrap<WrapperForChangeset, Changeset>(changeset)).GetInstance<TfsChangeset>();
             tfsChangeset.Summary = new TfsChangesetInfo { ChangesetId = changeset.ChangesetId, Remote = remote };
@@ -238,7 +242,7 @@ namespace Sep.Git.Tfs.VsCommon
             WorkItem[] result = null;
             try
             {
-                result = changeset.WorkItems;
+                result = Retry.Do(() => changeset.WorkItems);
             }
             catch (ConnectionException exception)
             {
@@ -258,11 +262,11 @@ namespace Sep.Git.Tfs.VsCommon
             {
                 Trace.WriteLine("Setting up a TFS workspace with subtrees at " + localDirectory);
                 var folders = mappings.Select(x => new WorkingFolder(x.Item1, Path.Combine(localDirectory, x.Item2))).ToArray();
-                _workspaces.Add(remote.Id, workspace = GetWorkspace(folders));
+                _workspaces.Add(remote.Id, workspace = Retry.Do(() =>GetWorkspace(folders)));
                 Janitor.CleanThisUpWhenWeClose(() =>
                 {
                     Trace.WriteLine("Deleting workspace " + workspace.Name);
-                    workspace.Delete();
+                    Retry.Do(() => workspace.Delete());
                 });
             }
             var tfsWorkspace = _container.With("localDirectory").EqualTo(localDirectory)
@@ -277,7 +281,7 @@ namespace Sep.Git.Tfs.VsCommon
         public void WithWorkspace(string localDirectory, IGitTfsRemote remote, TfsChangesetInfo versionToFetch, Action<ITfsWorkspace> action)
         {
             Trace.WriteLine("Setting up a TFS workspace at " + localDirectory);
-            var workspace = GetWorkspace(new WorkingFolder(remote.TfsRepositoryPath, localDirectory));
+            var workspace = Retry.Do(() => GetWorkspace(new WorkingFolder(remote.TfsRepositoryPath, localDirectory)));
             try
             {
                 var tfsWorkspace = _container.With("localDirectory").EqualTo(localDirectory)
@@ -290,7 +294,7 @@ namespace Sep.Git.Tfs.VsCommon
             }
             finally
             {
-                workspace.Delete();
+                Retry.Do(() => workspace.Delete());
             }
         }
 
@@ -633,7 +637,7 @@ namespace Sep.Git.Tfs.VsCommon
 
         public IIdentity GetIdentity(string username)
         {
-            return _bridge.Wrap<WrapperForIdentity, Identity>(GroupSecurityService.ReadIdentity(SearchFactor.AccountName, username, QueryMembership.None));
+            return _bridge.Wrap<WrapperForIdentity, Identity>(Retry.Do(() => GroupSecurityService.ReadIdentity(SearchFactor.AccountName, username, QueryMembership.None)));
         }
 
         public ITfsChangeset GetLatestChangeset(IGitTfsRemote remote)
