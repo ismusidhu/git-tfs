@@ -619,7 +619,20 @@ namespace Sep.Git.Tfs.Core
             WithWorkspace(changeset.Summary, workspace =>
             {
                 var treeBuilder = workspace.Remote.Repository.GetTreeBuilder(parent);
-                result = changeset.Apply(parent, treeBuilder, workspace);
+                try
+                {
+                  result = changeset.Apply(parent, treeBuilder, workspace);
+                }
+                catch (Exception ex)
+                {
+                  if (ex.Message.Contains("TF400889: The following path contains more than the allowed 259 characters"))
+                  {
+                    Debugger.Break();
+                    stdout.WriteLine("Warning: Couldn't apply changeset:");
+                    stdout.WriteLine(changeset.Summary);
+                    stdout.WriteLine(ex.IndentExceptionMessage());
+                  }
+                }
                 result.Tree = treeBuilder.GetTree();
             });
             if (!String.IsNullOrEmpty(parent)) result.CommitParents.Add(parent);

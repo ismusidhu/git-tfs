@@ -58,7 +58,7 @@ namespace Sep.Git.Tfs.Commands
             tfsRepositoryPath = (tfsRepositoryPath ?? string.Empty).TrimEnd('/');
 
 
-            int retVal;
+            int retVal= 0;
             try
             {
                 retVal = init.Run(tfsUrl, tfsRepositoryPath, gitRepositoryPath);
@@ -72,6 +72,7 @@ namespace Sep.Git.Tfs.Commands
             }
             catch
             {
+              /*//Don't delete. Log it and continue with next one.
                 try
                 {
                     // if we appeared to be inside repository dir when exception was thrown - we won't be able to delete it
@@ -95,6 +96,7 @@ namespace Sep.Git.Tfs.Commands
                 }
 
                 throw;
+               */
             }
             if (withBranches && initBranch != null)
             {
